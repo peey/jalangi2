@@ -878,9 +878,14 @@ if (typeof J$ === 'undefined') {
 
     function createCallAsScriptEnterStatement(node) {
         printIidToLoc(node);
-        var ret = replaceInStatement(logScriptEntryFunName + "(" + RP + "1," + RP + "2, " + RP + "3)",
-            getIid(),
-            createLiteralAst(instCodeFileName), createLiteralAst(origCodeFileName));
+        var ret = replaceInStatement(logScriptEntryFunName + "(" + RP + "1," + RP + "2, " + RP + "3," + RP + "4," + RP + "5, " + RP + "6)",
+                                     getIid(),
+                                     createLiteralAst(instCodeFileName),
+                                     createLiteralAst(origCodeFileName),
+                                     createIdentifierAst('this'),
+                                     replaceInExpr(logIFunName + "((typeof module === 'undefined')? undefined: module)"),
+                                     replaceInExpr(logIFunName + "((typeof require === 'undefined')? undefined: require)"));
+
         transferLoc(ret[0].expression, node);
         return ret;
     }

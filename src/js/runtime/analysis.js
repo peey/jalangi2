@@ -480,10 +480,10 @@ if (typeof J$ === 'undefined') {
     }
 
     // Script enter
-    function Se(iid, val, origFileName) {
+    function Se(iid, val, origFileName, dis /* this */, module, require) {
         createAndAssignNewSid();
         if (sandbox.analysis && sandbox.analysis.scriptEnter) {
-            sandbox.analysis.scriptEnter(iid, val, origFileName);
+            sandbox.analysis.scriptEnter(iid, val, origFileName, dis, module, require);
         }
         lastComputedValue = undefined;
     }
