@@ -31,7 +31,8 @@ if (typeof J$ === 'undefined') {
         require("./../../../" + header);
     });
 
-    var proxy = require("rewriting-proxy");
+    // XXX proxy support removed as a hack by esbena, for nodejs v5 support
+    // var proxy = require("rewriting-proxy");
     var instUtil = require("../instrument/instUtil");
     var fs = require('fs');
     var path = require("path");
@@ -517,4 +518,3 @@ if (typeof J$ === 'undefined') {
         exports.JALANGI_RUNTIME_DIR = JALANGI_RUNTIME_DIR;
     }
 }(J$));
-
