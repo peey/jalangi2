@@ -18,197 +18,197 @@
 
 /*jslint node: true */
 
-if (typeof J$ === 'undefined') {
+  if (typeof J$ === 'undefined') {
     J$ = {};
-}
+  }
 
 
 (function (sandbox) {
 
-    acorn = require("acorn");
-    esotope = require("esotope");
-    require('../headers').headerSources.forEach(function (header) {
-        require("./../../../" + header);
-    });
+  acorn = require("acorn");
+  esotope = require("esotope");
+  require('../headers').headerSources.forEach(function (header) {
+    require("./../../../" + header);
+  });
 
-    var proxy = require("rewriting-proxy");
-    var instUtil = require("../instrument/instUtil");
-    var fs = require('fs');
-    var path = require("path");
-    var mkdirp = require('mkdirp');
-    var ncp = require('graceful-ncp').ncp;
-    var stream = require("stream");
-    var util = require("util");
-    var assert = require('assert');
-    var temp = require('temp').track();
-    var ArgumentParser = require('argparse').ArgumentParser;
+  var proxy = require("rewriting-proxy");
+  var instUtil = require("../instrument/instUtil");
+  var fs = require('fs');
+  var path = require("path");
+  var mkdirp = require('mkdirp');
+  var ncp = require('graceful-ncp').ncp;
+  var stream = require("stream");
+  var util = require("util");
+  var assert = require('assert');
+  var temp = require('temp').track();
+  var ArgumentParser = require('argparse').ArgumentParser;
 
 
-    var EXTRA_SCRIPTS_DIR = "__jalangi_extra";
-    var JALANGI_RUNTIME_DIR = "jalangiRuntime";
+  var EXTRA_SCRIPTS_DIR = "__jalangi_extra";
+  var JALANGI_RUNTIME_DIR = "jalangiRuntime";
 
-    /**
-     * computes the Jalangi root directory based on the directory of the script
-     */
-    function getJalangiRoot() {
-        return path.join(__dirname, '../../..');
+      /**
+  * computes the Jalangi root directory based on the directory of the script
+               */
+  function getJalangiRoot() {
+    return path.join(__dirname, '../../..');
+  }
+
+  /**
+            * Instruments all .js files found under dir, and re-writes index.html
+                  * so that inline scripts are instrumented.  Output is written as a full
+                  * copy of dir, within outputDir.
+                  *
+                  * In addition to the command-line options, the options argument can also
+                  * include in property astHandler a function that takes the instrumented AST
+                  * as a parameter and returns a JSON object.  The instrumented code will store
+                  * the result object in J$.ast_info, so it will be available to analyses at the
+                                                                                                 * scriptEnter() callback.
+                                                                                                 */
+  function instrument(options, cb) {
+
+    if (!cb) {
+      throw new Error("must pass in a callback");
+    }
+    //
+    // parse out options
+    //
+
+    var verbose = options.verbose;
+
+    var excludePattern = options.exclude;
+
+    var onlyIncludeList = null;
+
+    if (options.only_include) {
+        onlyIncludeList = options.only_include.split(path.delimiter);
     }
 
-    /**
-     * Instruments all .js files found under dir, and re-writes index.html
-     * so that inline scripts are instrumented.  Output is written as a full
-     * copy of dir, within outputDir.
-     *
-     * In addition to the command-line options, the options argument can also
-     * include in property astHandler a function that takes the instrumented AST
-     * as a parameter and returns a JSON object.  The instrumented code will store
-     * the result object in J$.ast_info, so it will be available to analyses at the
-     * scriptEnter() callback.
-     */
-    function instrument(options, cb) {
+    var jalangiRoot = getJalangiRoot();
 
-        if (!cb) {
-            throw new Error("must pass in a callback");
-        }
-        //
-        // parse out options
-        //
-
-        var verbose = options.verbose;
-
-        var excludePattern = options.exclude;
-
-        var onlyIncludeList = null;
-
-        if (options.only_include) {
-            onlyIncludeList = options.only_include.split(path.delimiter);
-        }
-
-        var jalangiRoot = getJalangiRoot();
-
-        // should we store instrumented app directly in the output directory?
-        var directInOutput = options.direct_in_output;
+    // should we store instrumented app directly in the output directory?
+    var directInOutput = options.direct_in_output;
 
         instUtil.setHeaders();
 
-        var instrumentInline = options.instrumentInline;
-        var inlineJalangi = options.inlineJalangi;
-        var inlineIID = options.inlineIID;
-        var inlineSource = options.inlineSource;
+    var instrumentInline = options.instrumentInline;
+    var inlineJalangi = options.inlineJalangi;
+    var inlineIID = options.inlineIID;
+    var inlineSource = options.inlineSource;
 
-        var copyRuntime = options.copy_runtime;
+    var copyRuntime = options.copy_runtime;
 
-        // directory in which original app sits
-        var appDir;
+    // directory in which original app sits
+    var appDir;
 
-        // directory to which app is being copied
-        var copyDir;
+    // directory to which app is being copied
+    var copyDir;
 
-        // analyses to run in browser
-        var analyses = options.analysis;
+    // analyses to run in browser
+    var analyses = options.analysis;
 
-        // initialization parameters for analysis
-        var initParams = options.initParam;
+    // initialization parameters for analysis
+    var initParams = options.initParam;
 
-        var astHandler = options.astHandler;
+    var astHandler = options.astHandler;
 
 
         /**
-         * extra scripts to inject into the application and instrument
-         * @type {Array.<String>}
-         */
-        var extraAppScripts = [];
-        if (options.extra_app_scripts) {
-            extraAppScripts = options.extra_app_scripts.split(path.delimiter);
-        }
+                                                                                                 * extra scripts to inject into the application and instrument
+                                                                                                                                                          * @type {Array.<String>}
+      */
+    var extraAppScripts = [];
+    if (options.extra_app_scripts) {
+      extraAppScripts = options.extra_app_scripts.split(path.delimiter);
+    }
 
-        var inlineJalangiAndAnlysesInSingleJSFile = options.inlineJalangiAndAnlysesInSingleJSFile;
+    var inlineJalangiAndAnlysesInSingleJSFile = options.inlineJalangiAndAnlysesInSingleJSFile;
 
         function createOrigScriptFilename(name) {
-            return name.replace(new RegExp(".js$"), "_orig_.js");
+        return name.replace(new RegExp(".js$"), "_orig_.js");
         }
 
-        function rewriteInlineScript(src, metadata) {
-            var instname = instUtil.createFilenameForScript(metadata.url);
-            var origname = createOrigScriptFilename(instname);
+    function rewriteInlineScript(src, metadata) {
+      var instname = instUtil.createFilenameForScript(metadata.url);
+      var origname = createOrigScriptFilename(instname);
 
-            var options = {
-                code: src,
-                isEval: false,
-                origCodeFileName: origname,
-                instCodeFileName: instname,
-                inlineSourceMap: inlineIID,
-                inlineSource: inlineSource
-            };
+      var options = {
+          code: src,
+        isEval: false,
+        origCodeFileName: origname,
+        instCodeFileName: instname,
+        inlineSourceMap: inlineIID,
+        inlineSource: inlineSource
+      };
 
-            var instResult = sandbox.instrumentCode(options);
-            var instrumentedCode = instUtil.applyASTHandler(instResult, astHandler, sandbox);
-            fs.writeFileSync(path.join(copyDir, instname).replace(/.js$/, "_jalangi_.json"), instResult.sourceMapString, "utf8");
-            fs.writeFileSync(path.join(copyDir, origname), src);
-            fs.writeFileSync(path.join(copyDir, instname), instrumentedCode);
-            return instrumentedCode;
-        }
+      var instResult = sandbox.instrumentCode(options);
+      var instrumentedCode = instUtil.applyASTHandler(instResult, astHandler, sandbox);
+      fs.writeFileSync(path.join(copyDir, instname).replace(/.js$/, "_jalangi_.json"), instResult.sourceMapString, "utf8");
+      fs.writeFileSync(path.join(copyDir, origname), src);
+      fs.writeFileSync(path.join(copyDir, instname), instrumentedCode);
+      return instrumentedCode;
+    }
 
-        /**
-         * shared between HTMLRewriteStream and InstrumentJSStream
-         */
-        function accumulateData(chunk, enc, cb) {
-            this.data = this.data == null ? chunk : Buffer.concat([this.data,chunk]);;
-            cb();
-        }
+    /**
+                   * shared between HTMLRewriteStream and InstrumentJSStream
+  */
+    function accumulateData(chunk, enc, cb) {
+      this.data = this.data == null ? chunk : Buffer.concat([this.data,chunk]);;
+      cb();
+    }
 
-        var Transform = stream.Transform;
+    var Transform = stream.Transform;
 
-        function HTMLRewriteStream(options, filename) {
-            Transform.call(this, options);
-            this.data = null;
-            this.filename = filename;
-        }
+    function HTMLRewriteStream(options, filename) {
+      Transform.call(this, options);
+      this.data = null;
+        this.filename = filename;
+    }
 
-        util.inherits(HTMLRewriteStream, Transform);
+    util.inherits(HTMLRewriteStream, Transform);
 
-        HTMLRewriteStream.prototype._transform = accumulateData;
+    HTMLRewriteStream.prototype._transform = accumulateData;
 
-        var jalangiRuntimeDir = JALANGI_RUNTIME_DIR;
+    var jalangiRuntimeDir = JALANGI_RUNTIME_DIR;
 
 
         HTMLRewriteStream.prototype._flush = function (cb) {
-            function getContainedRuntimeScriptTags() {
-                var result = "";
-                var addScript = function (file) {
-                    var fileName = "/" + jalangiRuntimeDir + "/" + path.basename(file);
-                    result += "<script src=\"" + fileName + "\"></script>";
-                };
-                instUtil.headerSources.forEach(addScript);
-                if (analyses) {
-                    result += instUtil.genInitParamsCode(initParams);
-                    analyses.forEach(addScript);
-                }
-                return result;
-            }
+                             function getContainedRuntimeScriptTags() {
+                               var result = "";
+                               var addScript = function (file) {
+                                                 var fileName = "/" + jalangiRuntimeDir + "/" + path.basename(file);
+                                                 result += "<script src=\"" + fileName + "\"></script>";
+                                               };
+                                                     instUtil.headerSources.forEach(addScript);
+                                                     if (analyses) {
+                                                       result += instUtil.genInitParamsCode(initParams);
+                                                       analyses.forEach(addScript);
+                                                     }
+                               return result;
+                             }
 
 
-            var newHTML;
-            var headerLibs;
-            var metaStr = '<meta http-equiv="Content-Type" content="text/html; charset=utf-8">\n';
+                             var newHTML;
+                             var headerLibs;
+                             var metaStr = '<meta http-equiv="Content-Type" content="text/html; charset=utf-8">\n';
 
-            if (instrumentInline) {
-                newHTML = proxy.rewriteHTML(String(this.data), "http://foo.com", rewriteInlineScript, "");
-            } else {
-                newHTML = String(this.data);
+                             if (instrumentInline) {
+                               newHTML = proxy.rewriteHTML(String(this.data), "http://foo.com", rewriteInlineScript, "");
+                             } else {
+                               newHTML = String(this.data);
 
-            }
-            if (inlineJalangi) {
-                headerLibs = instUtil.getInlinedScripts(analyses, initParams, extraAppScripts, EXTRA_SCRIPTS_DIR, jalangiRoot);
-            } else {
-                if (copyRuntime) {
-                    headerLibs = getContainedRuntimeScriptTags();
-                } else {
-                    var tmp3 = "";
-                    if (analyses) {
-                        analyses.forEach(function (src) {
-                            src = path.resolve(src);
-                            tmp3 += "<script src=\"" + src + "\"></script>";
+                             }
+                             if (inlineJalangi) {
+                               headerLibs = instUtil.getInlinedScripts(analyses, initParams, extraAppScripts, EXTRA_SCRIPTS_DIR, jalangiRoot);
+                             } else {
+                               if (copyRuntime) {
+                                 headerLibs = getContainedRuntimeScriptTags();
+                               } else {
+                                 var tmp3 = "";
+                                 if (analyses) {
+                                   analyses.forEach(function (src) {
+                                               src = path.resolve(src);
+                                               tmp3 += "<script src=\"" + src + "\"></script>";
                         });
                     }
 
@@ -335,6 +335,7 @@ if (typeof J$ === 'undefined') {
             return result;
         }
 
+        var preambleAdded = false;
         function transform(readStream, writeStream, file) {
             var extension = path.extname(file.name);
             if (extension === '.html') {
@@ -346,7 +347,10 @@ if (typeof J$ === 'undefined') {
             } else if (extension === '.js') {
                 if (inlineJalangiAndAnlysesInSingleJSFile) {
                     // prepend source code for Jalangi and analyses
-                    // XXX the prepending happens for *all* input files, but instrumentation is aborted if more than one file is about to be instrumented.
+                    // XXX the prepending happens for *all* input files, so we stop if it is used more than once (we do not know which file that is the main file)
+                    if (preambleAdded) {
+                        throw new Error("Option --inlineJalangiAndAnlysesInSingleJSFile requires a single file to instrument!");
+                    }
 
                     // TODO pipe file-content directly instead
                     var preamble = instUtil.getHeaderCode(jalangiRoot);
@@ -358,6 +362,7 @@ if (typeof J$ === 'undefined') {
                     preambleStream._read = function noop() {};
                     preambleStream.push(preamble);
                     preambleStream.pipe(writeStream);
+                    preambleAdded = true;
                 }
 
                 // we instrument a JS file iff:
@@ -414,9 +419,7 @@ if (typeof J$ === 'undefined') {
 
         // are we instrumenting a directory?
         var instDir = options.inputFiles.length === 1 && fs.lstatSync(options.inputFiles[0]).isDirectory();
-        if (options.inlineJalangiAndAnlysesInSingleJSFile && (instDir || options.inputFiles.length > 1)) {
-            throw new Error("Option --inlineJalangiAndAnlysesInSingleJSFile requires a single file (non-directory) to instrument!")
-        }
+
         var inputDir;
         if (instDir) {
             inputDir = options.inputFiles[0];
