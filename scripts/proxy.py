@@ -10,7 +10,11 @@ from subprocess import CalledProcessError, Popen, PIPE, STDOUT
 
 p = Popen(['mitmdump --version'], stdout=PIPE, stdin=PIPE, stderr=STDOUT, shell=True)
 stdout = p.communicate()[0]
-mitmversion = float(stdout.decode()[9:][0:4]) # remove "mitmdump " and takes the major minor only (0.XX)
+
+print("mitmdump --version: " + stdout)
+
+mitmversionstr = stdout.decode()[9:][0:4]
+mitmversion = float(mitmversionstr) # remove "mitmdump " and takes the major minor only (0.XX)
 
 if mitmversion >= 0.17:
     from mitmproxy.script import concurrent
