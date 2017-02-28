@@ -1,7 +1,12 @@
 (function (global, factory) {
   typeof exports === 'object' && typeof module !== 'undefined' ? factory(exports) :
   typeof define === 'function' && define.amd ? define(['exports'], factory) :
-  (factory((global.acorn = global.acorn || {})));
+  Object.defineProperty(global, 'acorn', { // global.acorn = global.acorn || {}
+    configurable: false,
+    enumerable: false,
+    value: global.acorn || {}
+  });
+  factory(global.acorn);
 }(this, function (exports) { 'use strict';
 
   // Reserved word lists for various dialects of the language

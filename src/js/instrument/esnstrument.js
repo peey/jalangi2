@@ -24,7 +24,11 @@
 
 //var StatCollector = require('../utils/StatCollector');
 if (typeof J$ === 'undefined') {
-    J$ = {};
+    Object.defineProperty(/*global*/ typeof window === 'undefined' ? global : window, 'J$', { // J$ = {}
+        configurable: false,
+        enumerable: false,
+        value: {}
+    });
 }
 
 
@@ -108,6 +112,7 @@ if (typeof J$ === 'undefined') {
     var logTryCatchFinallyExceptionFunName = JALANGI_VAR + ".TCAx";
 
     var logWithFunName = JALANGI_VAR + ".Wi";
+    var logWithExitFunName = JALANGI_VAR + ".Wr";
     var logBinaryOpFunName = JALANGI_VAR + ".B";
     var logUnaryOpFunName = JALANGI_VAR + ".U";
     var logConditionalFunName = JALANGI_VAR + ".C";
@@ -173,8 +178,12 @@ if (typeof J$ === 'undefined') {
     var iidSourceInfo;
     var nxtFreshVar = 1;
 
+    // mkFreshVar does not check for whether the generated variable already exists;
+    // this is "fixed" by using this random number.
+    var rand = Math.round(Math.random() * 10000000000);
+
     function mkFreshVar(scope) {
-        var name = "J$__v" + nxtFreshVar++
+        var name = "J$__v" + rand + "_" + nxtFreshVar++
         if (scope) {
             scope.addVar(name, "tmp");
         }
@@ -375,9 +384,8 @@ if (typeof J$ === 'undefined') {
             );
             transferLoc(ret, node);
             return ret;
-        } else {
-            return val;
         }
+        return val;
     }
 
 //    function wrapReadWithUndefinedCheck(node, name) {
@@ -403,9 +411,8 @@ if (typeof J$ === 'undefined') {
         //    );
         //} else {
             ret = replaceInExpr(
-                "(" + logIFunName + "(typeof (" + name + ") === 'undefined'? (" + RP + "2) : (" + RP + "3)))",
-                createIdentifierAst(name),
-                wrapRead(node, createLiteralAst(name), createIdentifierAst("undefined"), false, true, false),
+                "(" + logIFunName + "(typeof (" + name + ") === 'undefined'? (" + RP + "1) : (" + RP + "2)))",
+                wrapRead(node, createLiteralAst(name), acorn.parse("J$.undef").body[0].expression, false, true, false),
                 wrapRead(node, createLiteralAst(name), createIdentifierAst(name), true, true, false)
             );
 //        }
@@ -516,11 +523,15 @@ if (typeof J$ === 'undefined') {
 
     function getFnIdFromAst(ast) {
         var entryExpr = ast.body.body[0];
-        if (entryExpr.type != 'ExpressionStatement') {
-            console.log(JSON.stringify(entryExpr));
-            throw new Error("IllegalStateException");
+        if (entryExpr.type === 'VariableDeclaration' && entryExpr.declarations[0].init.type === 'CallExpression') {
+            entryExpr = entryExpr.declarations[0].init;
+        } else {
+            if (entryExpr.type != 'ExpressionStatement') {
+                console.log(JSON.stringify(entryExpr));
+                throw new Error("IllegalStateException");
+            }
+            entryExpr = entryExpr.expression;
         }
-        entryExpr = entryExpr.expression;
         if (entryExpr.type != 'CallExpression') {
             throw new Error("IllegalStateException");
         }
@@ -771,6 +782,9 @@ if (typeof J$ === 'undefined') {
             transferLoc(ret, node);
             return ret;
         }
+        if (node.operator === "void") {
+            return argument;
+        }
         return node;
     }
 
@@ -943,17 +957,21 @@ if (typeof J$ === 'undefined') {
 
     function createCallAsFunEnterStatement(node) {
         printIidToLoc(node);
+
+        node.currentFunctionVar = mkFreshVar();
+
         var callee;
         if (node.scope.vars[node.id.name] === 'arg' || node.scope.vars[node.id.name] === 'var') {
             callee = node.reference = mkFreshVar();
         } else {
             callee = node.id.name;
         }
+
         var ret = replaceInStatement(
-            logFunctionEnterFunName + "(" + RP + "1, " + callee + ", this, arguments)",
-            getIid()
+            "var " + node.currentFunctionVar + " = " + logFunctionEnterFunName + "(" + RP + "1, " + callee + ", this, arguments)",
+            getIid(node)
         );
-        transferLoc(ret[0].expression, node);
+        transferLoc(ret[0].declarations[0].init, node);
         return ret;
     }
 
@@ -1070,18 +1088,12 @@ if (typeof J$ === 'undefined') {
             var iid1 = getIid();
             printIidToLoc(node);
             var l = labelCounter++;
-            var callee;
-            if (node.scope.vars[node.id.name] === 'arg' || node.scope.vars[node.id.name] === 'var') {
-                callee = node.reference = node.reference || mkFreshVar();
-            } else {
-                callee = node.id.name;
-            }
             var ret = replaceInStatement(
                 "function n() { jalangiLabel" + l + ": while(true) { try {" + RP + "1} catch(" + JALANGI_VAR +
                 "e) { //console.log(" + JALANGI_VAR + "e); console.log(" +
                 JALANGI_VAR + "e.stack);\n " + logUncaughtExceptionFunName + "(" + RP + "2, " + JALANGI_VAR +
                 "e); } finally { if (" + logFunctionReturnFunName + "(" +
-                RP + "3, " + callee + ")) continue jalangiLabel" + l + ";\n else \n  return " + logReturnAggrFunName + "();\n }\n }}", body,
+                RP + "3, " + node.currentFunctionVar + ")) continue jalangiLabel" + l + ";\n else \n  return " + logReturnAggrFunName + "();\n }\n }}", body,
                 iid1,
                 getIid()
             );
@@ -1570,7 +1582,7 @@ if (typeof J$ === 'undefined') {
             return ret1;
         },
         "FunctionExpression": function (node, context) {
-            if (!node.id) {
+            if (!node.id || node.scope.vars[node.id.name] === 'var') {
                 node.id = { type: 'Literal', name: mkFreshVar(), isSynthetic: true };
             }
             node.body.body = instrumentFunctionEntryExit(node, node.body.body);
@@ -1664,7 +1676,8 @@ if (typeof J$ === 'undefined') {
         if (!node.test) {
             // If test is omitted (e.g., for(;;)) then change it to the literal true
             // such that the Jalangi conditional hook will be invoked.
-            node.test = { type: 'Literal', value: true, raw: 'true' };
+            var literal = { type: 'Literal', value: true, raw: 'true' };
+            node.test = wrapLiteral(literal, literal, N_LOG_BOOLEAN_LIT);
         }
 
         node.test = wrapConditional(node.test, node.type);
@@ -1713,6 +1726,7 @@ if (typeof J$ === 'undefined') {
         'UnaryExpression': function (node) {
             var ret;
             if (node.operator === "void") {
+                node.argument = wrapUnaryOp(node, node.argument, node.operator);
                 return node;
             } else if (node.operator === "delete") {
                 if (node.argument.object) {
@@ -1768,7 +1782,11 @@ if (typeof J$ === 'undefined') {
         },
         "WithStatement": function (node) {
             node.object = wrapWith(node.object);
-            return node;
+            var result = replaceInStatement(
+                "try { " + RP + "1 } finally { " + logWithExitFunName + "(); }",
+                [node]
+            );
+            return result[0];
         },
         "ConditionalExpression": funCond,
         "IfStatement": funCond,

@@ -23,7 +23,11 @@
 // wrap in anonymous function to create local namespace when in browser
 // create / reset J$ global variable to hold analysis runtime
 if (typeof J$ === 'undefined') {
-    J$ = {};
+    Object.defineProperty(/*global*/ typeof window === 'undefined' ? global : window, 'J$', { // J$ = {}
+        configurable: false,
+        enumerable: false,
+        value: {}
+    });
 }
 
 (function (sandbox) {
@@ -40,7 +44,7 @@ if (typeof J$ === 'undefined') {
     var global = this;
     var Function = global.Function;
     var returnStack = [];
-    var tryCatchFinallyExceptionVal;
+    var tryCatchFinallyExceptionVals = [];
     var wrappedExceptionVal;
     var lastVal;
     var switchLeft;
@@ -50,7 +54,6 @@ if (typeof J$ === 'undefined') {
     var lastComputedValue;
     var SPECIAL_PROP_SID = sandbox.Constants.SPECIAL_PROP_SID;
     var SPECIAL_PROP_IID = sandbox.Constants.SPECIAL_PROP_IID;
-
 
     function decodeBitPattern(i, len) {
         var ret = new Array(len);
@@ -165,16 +168,24 @@ if (typeof J$ === 'undefined') {
     function invokeFunctionDecl(base, f, args, iid) {
         // Invoke with the original parameters to preserve exceptional behavior if input is invalid
         f.apply(base, args);
+        
         // Otherwise input is valid, so instrument and invoke via eval
-        var newArgs = [];
-        for (var i = 0; i < args.length-1; i++) {
-            newArgs[i] = args[i];
+        var offset = 0;
+
+        if (f === Function.prototype.apply) {
+            args = args[1];
+        } else if (f === Function.prototype.call) {
+            offset = 1;
         }
-        var code = '(function(' + newArgs.join(', ') + ') { ' + args[args.length-1] + ' })';
-        var code = sandbox.instrumentEvalCode(code, iid, false);
+
+        var formals = [];
+        for (var i = 0 + offset; i < args.length-1; i++) {
+            formals[i - offset] = args[i];
+        }
+        var body = args[args.length-1];
+
         // Using EVAL_ORG instead of eval() is important as it preserves the scoping semantics of Function()
-        var out = EVAL_ORG(code);
-        return out;
+        return EVAL_ORG(sandbox.instrumentEvalCode('(function (' + formals.join(', ') + ') { ' + body + ' })', iid, false));
     }
 
     function callFun(f, base, args, isConstructor, iid) {
@@ -183,7 +194,7 @@ if (typeof J$ === 'undefined') {
         try {
             if (f === EVAL_ORG) {
                 result = invokeEval(base, f, args, iid);
-            } else if (f === Function) {
+            } else if (f === Function || (base === Function && (f === Function.prototype.apply || f === Function.prototype.call))) {
                 result = invokeFunctionDecl(base, f, args, iid);
             } else if (isConstructor) {
                 result = callAsConstructor(f, args);
@@ -413,6 +424,12 @@ if (typeof J$ === 'undefined') {
         return val;
     }
 
+    function Wr(iid, val) {
+        if (sandbox.analysis && sandbox.analysis.withBodyExit) {
+            sandbox.analysis.withBodyExit(iid, val);
+        }
+    }
+
     // Uncaught exception
     function Ex(iid, e) {
         wrappedExceptionVal = {exception:e};
@@ -456,6 +473,10 @@ if (typeof J$ === 'undefined') {
 
     // Function enter
     function Fe(iid, f, dis /* this */, args) {
+        if (typeof sandbox.cf === 'function') {
+            f = sandbox.cf;
+            sandbox.cf = null;
+        }
         argIndex = 0;
         returnStack.push(undefined);
         wrappedExceptionVal = undefined;
@@ -463,6 +484,7 @@ if (typeof J$ === 'undefined') {
         if (sandbox.analysis && sandbox.analysis.functionEnter) {
             sandbox.analysis.functionEnter(iid, f, dis, args);
         }
+        return f;
     }
 
     // Function exit
@@ -800,7 +822,7 @@ if (typeof J$ === 'undefined') {
     }
 
     function Te(iid, flags) {
-        tryCatchFinallyExceptionVal = null;
+        tryCatchFinallyExceptionVals.push(null);
         if (sandbox.analysis && sandbox.analysis.tryEnter) {
             var bFlags = decodeBitPattern(flags, 2);
             sandbox.analysis.tryEnter(iid, bFlags[0], bFlags[1]);
@@ -810,7 +832,7 @@ if (typeof J$ === 'undefined') {
     function Tr(iid, flags) {
         if (sandbox.analysis && sandbox.analysis.tryExit) {
             var bFlags = decodeBitPattern(flags, 2);
-            sandbox.analysis.tryExit(iid, bFlags[0], bFlags[1], tryCatchFinallyExceptionVal);
+            sandbox.analysis.tryExit(iid, bFlags[0], bFlags[1], tryCatchFinallyExceptionVals.pop());
         }
     }
 
@@ -839,7 +861,9 @@ if (typeof J$ === 'undefined') {
     }
 
     function TCAx(exception) {
-        tryCatchFinallyExceptionVal = { exception: exception };
+        // replace null in the stack by the exception object
+        tryCatchFinallyExceptionVals.pop();
+        tryCatchFinallyExceptionVals.push({ exception: exception });
         throw exception;
     }
 
@@ -888,6 +912,7 @@ if (typeof J$ === 'undefined') {
     sandbox.L = L;
     sandbox.X1 = X1; // top level expression
     sandbox.Wi = Wi; // with statement
+    sandbox.Wr = Wr;
     sandbox.endExecution = endExecution;
 
     sandbox.Le = Le; // Loop enter
@@ -920,5 +945,8 @@ if (typeof J$ === 'undefined') {
 
     sandbox.funName = Symbol();
     sandbox.strictMode = Symbol();
-})(J$);
 
+    sandbox.cf = null; // current function
+
+    sandbox.undef = undefined; // current function
+})(J$);

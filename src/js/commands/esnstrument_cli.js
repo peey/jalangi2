@@ -20,10 +20,14 @@
 /*global astUtil acorn esotope J$ */
 
 //var StatCollector = require('../utils/StatCollector');
-if (typeof J$ === 'undefined') {
-    J$ = {};
-}
 
+if (typeof J$ === 'undefined') {
+    Object.defineProperty(/*global*/ typeof window === 'undefined' ? global : window, 'J$', { // J$ = {}
+        configurable: false,
+        enumerable: false,
+        value: {}
+    });
+}
 
 (function (sandbox) {
     acorn = require("acorn");
@@ -208,11 +212,16 @@ if (typeof J$ === 'undefined') {
             try {
                 var jalangiRoot = getJalangiRoot();
                 var rewriteOptions = {
+                    onBeforeNodeVisited: function (node) {
+                        if (htmlVisitor.beforeVisitor) {
+                            htmlVisitor.beforeVisitor(node, inlineRewriter);
+                        }
+                    },
                     onNodeVisited: function (node) {
                         var newNode;
 
                         if (htmlVisitor.visitor) {
-                            htmlVisitor.visitor(node);
+                            htmlVisitor.visitor(node, inlineRewriter);
                         }
 
                         switch (node.tagName) {
