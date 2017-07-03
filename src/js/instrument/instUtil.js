@@ -24,9 +24,20 @@ var fs = require('fs');
 var path = require('path');
 var urlParser = require('url');
 
+function getDependency(path){
+  var targets = ["..", "node_modules"];
+  for(var i = 0; i < targets.length; i++){
+    var target = targets[i];
+    var fullPath = __dirname + "/../../../" + target + "/" + path;
+    if(fs.existsSync(fullPath)){
+      return fullPath;
+    }
+  }
+  throw new Error("Could not find dependency: " + path);
+}
 
-var headerSources = ["node_modules/esotope/esotope.js",
-    "node_modules/acorn/dist/acorn.js"];
+var headerSources = [getDependency("esotope/esotope.js"),
+                     getDependency("acorn/dist/acorn.js")];
 
 var headersSet = false;
 
@@ -36,164 +47,164 @@ var headersSet = false;
 var headerCode = "";
 
 function setHeaders() {
-    if (!headersSet) {
-        headerSources = headerSources.concat(require("../headers").headerSources);
-        exports.headerSources = headerSources;
-        headersSet = true;
-    }
+  if (!headersSet) {
+    headerSources = headerSources.concat(require("../headers").headerSources);
+    exports.headerSources = headerSources;
+    headersSet = true;
+  }
 }
 
 
 function getInlinedScripts(analyses, initParams, extraAppScripts, EXTRA_SCRIPTS_DIR, jalangiRoot, cdn) {
-    if (!headerCode) {
-        if (cdn) {
-            headerCode += "<script type=\"text/javascript\" src=\"" + cdn + "/jalangi.js\"></script>";
-        } else {
-            headerSources.forEach(function (src) {
-                if (jalangiRoot) {
-                    src = path.join(jalangiRoot, src);
-                }
-                headerCode += "<script type=\"text/javascript\">";
-                headerCode += fs.readFileSync(src);
-                headerCode += "</script>";
-            });
+  if (!headerCode) {
+    if (cdn) {
+      headerCode += "<script type=\"text/javascript\" src=\"" + cdn + "/jalangi.js\"></script>";
+    } else {
+      headerSources.forEach(function (src) {
+        if (jalangiRoot) {
+          src = path.join(jalangiRoot, src);
         }
-
-        if (analyses) {
-            var initParamsCode = genInitParamsCode(initParams);
-            if (initParamsCode) {
-                headerCode += initParamsCode;
-            }
-            if (cdn) {
-                headerCode += "<script type=\"text/javascript\" src=\"" + cdn + "/analyses.js\"></script>";
-            } else {
-                analyses.forEach(function (src) {
-                    src = path.resolve(src);
-                    headerCode += "<script type=\"text/javascript\">";
-                    headerCode += fs.readFileSync(src);
-                    headerCode += "</script>";
-                });
-            }
-        }
-
-        if (extraAppScripts.length > 0) {
-            // we need to inject script tags for the extra app scripts,
-            // which have been copied into the app directory
-            if (cdn) {
-                headerCode += "<script type=\"text/javascript\" src=\"" + cdn + "/extras.js\"></script>";
-            } else {
-                extraAppScripts.forEach(function (script) {
-                    var scriptSrc = path.join(EXTRA_SCRIPTS_DIR, path.basename(script));
-                    headerCode += "<script type=\"text/javascript\">";
-                    headerCode += fs.readFileSync(scriptSrc);
-                    headerCode += "</script>";
-                });
-            }
-        }
+        headerCode += "<script type=\"text/javascript\">";
+        headerCode += fs.readFileSync(src);
+        headerCode += "</script>";
+      });
     }
-    return headerCode;
+
+    if (analyses) {
+      var initParamsCode = genInitParamsCode(initParams);
+      if (initParamsCode) {
+        headerCode += initParamsCode;
+      }
+      if (cdn) {
+        headerCode += "<script type=\"text/javascript\" src=\"" + cdn + "/analyses.js\"></script>";
+      } else {
+        analyses.forEach(function (src) {
+   src = path.resolve(src);
+   headerCode += "<script type=\"text/javascript\">";
+   headerCode += fs.readFileSync(src);
+   headerCode += "</script>";
+ });
+      }
+    }
+
+    if (extraAppScripts.length > 0) {
+      // we need to inject script tags for the extra app scripts,
+      // which have been copied into the app directory
+      if (cdn) {
+        headerCode += "<script type=\"text/javascript\" src=\"" + cdn + "/extras.js\"></script>";
+      } else {
+        extraAppScripts.forEach(function (script) {
+     var scriptSrc = path.join(EXTRA_SCRIPTS_DIR, path.basename(script));
+     headerCode += "<script type=\"text/javascript\">";
+     headerCode += fs.readFileSync(scriptSrc);
+     headerCode += "</script>";
+   });
+      }
+    }
+  }
+  return headerCode;
 }
 
-function endsWith(str, suffix) {
-    return str.indexOf(suffix, str.length - suffix.length) !== -1;
-};
+         function endsWith(str, suffix) {
+           return str.indexOf(suffix, str.length - suffix.length) !== -1;
+         };
 
 function getFooterString(jalangiRoot) {
-    var footerSources = require("../footers").footerSources;
-    var footerCode = "";
-    footerSources.forEach(function (src) {
-        if (jalangiRoot) {
-            src = path.join(jalangiRoot, src);
-        }
-        if (endsWith(src, ".js")) {
-            footerCode += "<script type=\"text/javascript\">";
-            footerCode += fs.readFileSync(src);
-            footerCode += "</script>";
-        } else {
-            footerCode += fs.readFileSync(src);
-        }
-    });
+  var footerSources = require("../footers").footerSources;
+  var footerCode = "";
+  footerSources.forEach(function (src) {
+           if (jalangiRoot) {
+             src = path.join(jalangiRoot, src);
+           }
+           if (endsWith(src, ".js")) {
+      footerCode += "<script type=\"text/javascript\">";
+             footerCode += fs.readFileSync(src);
+             footerCode += "</script>";
+           } else {
+             footerCode += fs.readFileSync(src);
+           }
+         });
 
-    return footerCode;
+  return footerCode;
 }
 
 function genInitParamsCode(initParams) {
-    var initParamsObj = {};
-    if (initParams) {
-        initParams.forEach(function (keyVal) {
-            var split = keyVal.split(':');
-            if (split.length !== 2) {
-                throw new Error("invalid initParam " + keyVal);
-            }
-            initParamsObj[split[0]] = split[1];
-        });
-    }
-    return "<script>J$.initParams = " + JSON.stringify(initParamsObj) + ";</script>";
+  var initParamsObj = {};
+  if (initParams) {
+    initParams.forEach(function (keyVal) {
+                         var split = keyVal.split(':');
+                         if (split.length !== 2) {
+                           throw new Error("invalid initParam " + keyVal);
+                         }
+                         initParamsObj[split[0]] = split[1];
+                       });
+  }
+  return "<script>J$.initParams = " + JSON.stringify(initParamsObj) + ";</script>";
 }
 
 function applyASTHandler(instResult, astHandler, sandbox) {
-    if (astHandler && instResult.instAST) {
-        var info = astHandler(instResult.instAST);
-        if (info) {
-            instResult.code = sandbox.Constants.JALANGI_VAR + ".ast_info = " + JSON.stringify(info) + ";\n" + instResult.code;
-        }
+  if (astHandler && instResult.instAST) {
+    var info = astHandler(instResult.instAST);
+    if (info) {
+      instResult.code = sandbox.Constants.JALANGI_VAR + ".ast_info = " + JSON.stringify(info) + ";\n" + instResult.code;
     }
-    return instResult.code;
+  }
+                                                      return instResult.code;
 }
 
 function headerCodeInit(root) {
-    headerSources.forEach(function (src) {
-        if (root) {
-            src = path.join(root, src);
-        }
-        headerCode += fs.readFileSync(src);
-    });
+  headerSources.forEach(function (src) {
+           if (root) {
+             src = path.join(root, src);
+           }
+           headerCode += fs.readFileSync(src);
+         });
 }
 
 function getHeaderCode(root) {
-    if (!headerCode) {
-        headerCodeInit(root);
-    }
-    return headerCode;
+  if (!headerCode) {
+    headerCodeInit(root);
+  }
+  return headerCode;
 }
 
 /**
  * returns an HTML string of <script> tags, one of each header file, with the
- * absolute path of the header file
- */
+                                                                       * absolute path of the header file
+                                                                     */
 function getHeaderCodeAsScriptTags(root) {
-    var ret = "";
-    headerSources.forEach(function (src) {
-        if (root) {
-            src = path.join(root, src);
-        }
-        src = path.resolve(src);
-        ret += "<script src=\"" + src + "\"></script>";
-    });
-    return ret;
+  var ret = "";
+      headerSources.forEach(function (src) {
+                    if (root) {
+                      src = path.join(root, src);
+                    }
+                    src = path.resolve(src);
+                    ret += "<script src=\"" + src + "\"></script>";
+                  });
+      return ret;
 }
 
 var inlineRegexp = /#(inline|event-handler|js-url)/;
 
 /**
- * Does the url (obtained from rewriting-proxy) represent an inline script?
- */
+              * Does the url (obtained from rewriting-proxy) represent an inline script?
+                                                                                        */
 function isInlineScript(url) {
-    return inlineRegexp.test(url);
+  return inlineRegexp.test(url);
 }
 
 /**
- * generate a filename for a script with the given url
+  * generate a filename for a script with the given url
  */
 function createFilenameForScript(url) {
-    // TODO make this much more robust
-    console.log("url:" + url);
-    var parsed = urlParser.parse(url);
-    if (inlineRegexp.test(url)) {
-        return parsed.hash.substring(1) + ".js";
-    } else {
-        return parsed.pathname.substring(parsed.pathname.lastIndexOf("/") + 1);
-    }
+  // TODO make this much more robust
+  console.log("url:" + url);
+  var parsed = urlParser.parse(url);
+  if (inlineRegexp.test(url)) {
+    return parsed.hash.substring(1) + ".js";
+  } else {
+    return parsed.pathname.substring(parsed.pathname.lastIndexOf("/") + 1);
+  }
 }
 
 exports.setHeaders = setHeaders;
