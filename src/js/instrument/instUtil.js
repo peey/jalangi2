@@ -28,9 +28,10 @@ function getDependency(path){
   var targets = ["..", "node_modules"];
   for(var i = 0; i < targets.length; i++){
     var target = targets[i];
-    var fullPath = __dirname + "/../../../" + target + "/" + path;
+    var rootRelativePath = target + "/" + path;
+    var fullPath = __dirname + "/../../../" + rootRelativePath;
     if(fs.existsSync(fullPath)){
-      return fullPath;
+      return rootRelativePath;
     }
   }
   throw new Error("Could not find dependency: " + path);
