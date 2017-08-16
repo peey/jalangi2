@@ -122,6 +122,7 @@ if (typeof J$ === 'undefined') {
             extraAppScripts = options.extra_app_scripts.split(path.delimiter);
         }
 
+        var inlineJalangiAndAnlysesInSingleJSFile = options.inlineJalangiAndAnlysesInSingleJSFile;
 
         function createOrigScriptFilename(name) {
             return name.replace(new RegExp(".js$"), "_orig_.js");
@@ -334,6 +335,7 @@ if (typeof J$ === 'undefined') {
             return result;
         }
 
+        var preambleAdded = false;
         function transform(readStream, writeStream, file) {
             var extension = path.extname(file.name);
             if (extension === '.html') {
@@ -343,6 +345,26 @@ if (typeof J$ === 'undefined') {
                     rewriteHtml(readStream, writeStream, file.name);
                 }
             } else if (extension === '.js') {
+                if (inlineJalangiAndAnlysesInSingleJSFile) {
+                    // prepend source code for Jalangi and analyses
+                    // XXX the prepending happens for *all* input files, so we stop if it is used more than once (we do not know which file that is the main file)
+                    if (preambleAdded) {
+                        throw new Error("Option --inlineJalangiAndAnlysesInSingleJSFile requires a single file to instrument!");
+                    }
+
+                    // TODO pipe file-content directly instead
+                    var preamble = instUtil.getHeaderCode(jalangiRoot);
+                    analyses.forEach(function (analysis){
+                        preamble += String(fs.readFileSync(analysis)) + ";";
+                    });
+
+                    var preambleStream = new stream.Readable();
+                    preambleStream._read = function noop() {};
+                    preambleStream.push(preamble);
+                    preambleStream.pipe(writeStream);
+                    preambleAdded = true;
+                }
+
                 // we instrument a JS file iff:
                 // (1) it's an extra app script, or
                 // (2) an include list is specified and the file name is included, or
@@ -492,6 +514,10 @@ if (typeof J$ === 'undefined') {
         parser.addArgument(['--outputDir'], {help: "directory in which to place instrumented files", required: true});
         parser.addArgument(['--verbose'], {help: "print verbose output", action: 'storeTrue'});
         parser.addArgument(['--astHandlerModule'], {help: "Path to a node module that exports a function to be used for additional AST handling after instrumentation"});
+        parser.addArgument(['--inlineJalangiAndAnlysesInSingleJSFile'], {
+          help: "Inline Jalangi runtime source code and analyses into instrumented JavaScript file. <<Only supports a single inputFile!>>",
+          action: 'storeTrue'
+        });
         parser.addArgument(['inputFiles'], {
             help: "either a list of JavaScript files to instrument, or a single directory under which all JavaScript and HTML files should be instrumented (modulo the --no_html and --exclude flags)",
             nargs: '+'

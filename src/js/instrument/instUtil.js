@@ -24,9 +24,21 @@ var fs = require('fs');
 var path = require('path');
 var urlParser = require('url');
 
+function getDependency(path){
+  var targets = ["..", "node_modules"];
+  for(var i = 0; i < targets.length; i++){
+    var target = targets[i];
+    var rootRelativePath = target + "/" + path;
+    var fullPath = __dirname + "/../../../" + rootRelativePath;
+    if(fs.existsSync(fullPath)){
+      return rootRelativePath;
+    }
+  }
+  throw new Error("Could not find dependency: " + path);
+}
 
-var headerSources = ["node_modules/esotope/esotope.js",
-    "node_modules/acorn/dist/acorn.js"];
+var headerSources = [getDependency("esotope/esotope.js"),
+                     getDependency("acorn/dist/acorn.js")];
 
 var headersSet = false;
 

@@ -193,6 +193,7 @@ if (typeof J$ === 'undefined') {
             } else if (isConstructor) {
                 result = callAsConstructor(f, args);
             } else {
+                args = Array.prototype.slice.call(args); // XXX nasty workaround for Nashorn bug
                 result = Function.prototype.apply.call(f, base, args);
             }
             return result;
