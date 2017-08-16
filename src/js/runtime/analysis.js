@@ -23,7 +23,11 @@
 // wrap in anonymous function to create local namespace when in browser
 // create / reset J$ global variable to hold analysis runtime
 if (typeof J$ === 'undefined') {
-    J$ = {};
+    Object.defineProperty(/*global*/ typeof window === 'undefined' ? global : window, 'J$', { // J$ = {}
+        configurable: false,
+        enumerable: false,
+        value: {}
+    });
 }
 
 (function (sandbox) {
@@ -171,11 +175,19 @@ if (typeof J$ === 'undefined') {
         // Invoke with the original parameters to preserve exceptional behavior if input is invalid
         f.apply(base, args);
         // Otherwise input is valid, so instrument and invoke via eval
-        var newArgs = [];
-        for (var i = 0; i < args.length-1; i++) {
-            newArgs[i] = args[i];
+        var offset = 0;
+        if (f === Function.prototype.apply) {
+            args = args[1];
+        } else if (f === Function.prototype.call) {
+            offset = 1;
         }
-        var code = '(function(' + newArgs.join(', ') + ') { ' + args[args.length-1] + ' })';
+        var formals = [];
+        for (var i = 0 + offset; i < args.length-1; i++) {
+            formals[i - offset] = args[i];
+        }
+        
+        var body = args[args.length-1];
+        var code = '(function(' + formals.join(', ') + ') { ' + body + ' })';
         var code = sandbox.instrumentEvalCode(code, iid, false);
         // Using EVAL_ORG instead of eval() is important as it preserves the scoping semantics of Function()
         var out = EVAL_ORG(code);
@@ -188,7 +200,7 @@ if (typeof J$ === 'undefined') {
         try {
             if (f === EVAL_ORG) {
                 result = invokeEval(base, f, args, iid);
-            } else if (f === Function) {
+            } else if (f === Function || (base === Function && (f === Function.prototype.apply || f === Function.prototype.call))) {
                 result = invokeFunctionDecl(base, f, args, iid);
             } else if (isConstructor) {
                 result = callAsConstructor(f, args);
@@ -230,7 +242,7 @@ if (typeof J$ === 'undefined') {
     function F(iid, f, flags) {
         var bFlags = decodeBitPattern(flags, 1); // [isConstructor]
         return function () {
-            var base = this;
+            var base = f && f[J$.strictMode] ? undefined : this;
             return (lastComputedValue = invokeFun(iid, base, f, arguments, bFlags[0], false));
         }
     }
@@ -251,7 +263,7 @@ if (typeof J$ === 'undefined') {
 
     var hasGetOwnPropertyDescriptor = typeof Object.getOwnPropertyDescriptor === 'function';
     // object/function/regexp/array Literal
-    function T(iid, val, type, hasGetterSetter, internalIid) {
+    function T(iid, val, type, hasGetterSetter, internalIid, isGetter, isSetter) {
         var aret;
         associateSidWithFunction(val, internalIid);
         if (hasGetterSetter) {
@@ -260,17 +272,17 @@ if (typeof J$ === 'undefined') {
                     var desc = Object.getOwnPropertyDescriptor(val, offset);
                     if (desc !== undefined) {
                         if (typeof desc.get === 'function') {
-                            T(iid, desc.get, 12, false, internalIid);
+                            T(iid, desc.get, 12, false, internalIid, true, false);
                         }
                         if (typeof desc.set === 'function') {
-                            T(iid, desc.set, 12, false, internalIid);
+                            T(iid, desc.set, 12, false, internalIid, false, true);
                         }
                     }
                 }
             }
         }
         if (sandbox.analysis && sandbox.analysis.literal) {
-            aret = sandbox.analysis.literal(iid, val, hasGetterSetter);
+            aret = sandbox.analysis.literal(iid, val, hasGetterSetter, isGetter, isSetter);
             if (aret) {
                 val = aret.result;
             }
@@ -804,9 +816,29 @@ if (typeof J$ === 'undefined') {
     sandbox.Wi = Wi; // with statement
     sandbox.endExecution = endExecution;
 
+    sandbox.funName = Symbol();
+    sandbox.strictMode = Symbol();
+
     sandbox.S = S;
+
+    sandbox.dG = function (base, offset, val) {
+        val[J$.funName] = "get " + offset;
+        base.__defineGetter__(offset, val);
+    };
+
+    sandbox.dS = function (base, offset, val) {
+        val[J$.funName] = "set " + offset;
+        base.__defineSetter__(offset, val);
+    };
 
     sandbox.EVAL_ORG = EVAL_ORG;
     sandbox.log = log;
+
+    sandbox.funName = Symbol();
+    sandbox.strictMode = Symbol();
+
+    sandbox.cf = null; // current function
+
+    sandbox.undef = undefined; // current function
 })(J$);
 

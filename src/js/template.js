@@ -19,7 +19,11 @@
 // add relative path of this file in headers.js
 
 if (typeof J$ === 'undefined') {
-    J$ = {};
+    Object.defineProperty(/*global*/ typeof window === 'undefined' ? global : window, 'J$', { // J$ = {}
+        configurable: false,
+        enumerable: false,
+        value: {}
+    });
 }
 
 (function (sandbox) {

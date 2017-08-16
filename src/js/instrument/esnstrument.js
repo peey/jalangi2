@@ -24,7 +24,11 @@
 
 //var StatCollector = require('../utils/StatCollector');
 if (typeof J$ === 'undefined') {
-    J$ = {};
+    Object.defineProperty(/*global*/ typeof window === 'undefined' ? global : window, 'J$', { // J$ = {}
+        configurable: false,
+        enumerable: false,
+        value: {}
+    });
 }
 
 
@@ -201,7 +205,19 @@ if (typeof J$ === 'undefined') {
     var origCodeFileName;
     var instCodeFileName;
     var iidSourceInfo;
+    var nxtFreshVar = 1;
 
+    // mkFreshVar does not check for whether the generated variable already exists;
+    // this is "fixed" by using this random number.
+    var rand = Math.round(Math.random() * 10000000000);
+
+    function mkFreshVar(scope) {
+        var name = "J$__v" + rand + "_" + nxtFreshVar++
+        if (scope) {
+            scope.addVar(name, "tmp");
+        }
+        return name;
+    }
 
     function getIid() {
         var tmpIid = memIid;
@@ -264,11 +280,13 @@ if (typeof J$ === 'undefined') {
         var visitorReplaceInExpr = {
             'Identifier': function (node) {
                 if (node.name.indexOf(RP) === 0) {
-                    var i = parseInt(node.name.substring(RP.length));
-                    return asts[i];
-                } else {
-                    return node;
+                    var remaining = node.name.substring(RP.length);
+                    if (!isNaN(remaining)) {
+                        var i = parseInt(node.name.substring(RP.length));
+                        return asts[i];
+                    }
                 }
+                return node;
             },
             'BlockStatement': function (node) {
                 if (node.body[0].type === 'ExpressionStatement' && isArr(node.body[0].expression)) {
@@ -576,11 +594,15 @@ if (typeof J$ === 'undefined') {
 
     function getFnIdFromAst(ast) {
         var entryExpr = ast.body.body[0];
-        if (entryExpr.type != 'ExpressionStatement') {
-            console.log(JSON.stringify(entryExpr));
-            throw new Error("IllegalStateException");
+        if (entryExpr.type === 'VariableDeclaration' && entryExpr.declarations[0].init.type === 'CallExpression') {
+            entryExpr = entryExpr.declarations[0].init;
+        } else {
+            if (entryExpr.type != 'ExpressionStatement') {
+                console.log(JSON.stringify(entryExpr));
+                throw new Error("IllegalStateException");
+            }
+            entryExpr = entryExpr.expression;
         }
-        entryExpr = entryExpr.expression;
         if (entryExpr.type != 'CallExpression') {
             throw new Error("IllegalStateException");
         }
@@ -603,25 +625,59 @@ if (typeof J$ === 'undefined') {
 
             var ret;
             if (funId == N_LOG_FUNCTION_LIT) {
-                var internalFunId = null;
-                if (node.type == 'FunctionExpression') {
-                    internalFunId = getFnIdFromAst(node);
-                } else {
+                var decl = node;
+                if (node.type !== 'FunctionExpression') {
                     if (node.type != 'Identifier') {
                         throw new Error("IllegalStateException");
                     }
-                    internalFunId = getFnIdFromAst(scope.funNodes[node.name]);
+                    decl = scope.funNodes[node.name];
                 }
+                var internalFunId = getFnIdFromAst(decl);
                 ret = replaceInExpr(
-                    logLitFunName + "(" + RP + "1, " + RP + "2, " + RP + "3," + hasGetterSetter + ", " + internalFunId + ")",
+                    logLitFunName + "(" + RP + "1, " + RP + "2, " + RP + "3, " + hasGetterSetter + ", " + internalFunId + ")",
                     getIid(),
                     ast,
                     createLiteralAst(funId),
                     internalFunId
                 );
+            } else if (funId === N_LOG_OBJECT_LIT) {
+                var objectKeys = [];
+                var operations = [];
+                var properties = node.properties.filter(function (property) {
+                    if (property.kind === 'init') {
+                        var key = property.key.type === 'Literal' ? property.key.raw : JSON.stringify(property.key.name);
+                        objectKeys.push('{ name: ' + key + ', kind: ' + JSON.stringify(property.kind) + '}');
+                    } else if (property.kind === 'get' || property.kind === 'set') {
+                        var method = property.kind === "get" ? "dG" : "dS";
+                        operations.push(replaceInExpr(
+                            "J$." + method + "(" + node.reference + ", " + JSON.stringify(property.key.name) + ", " + RP + "1)",
+                            property.value));
+                        return false;
+                    }
+                    return true;
+                });
+                if (operations.length) {
+                    ast = {
+                        type: 'SequenceExpression',
+                        expressions: [
+                            replaceInExpr(node.reference + " = " + RP + "1", {
+                                type: 'ObjectExpression',
+                                properties: properties
+                            })
+                        ]
+                    };
+                    Array.prototype.push.apply(ast.expressions, operations);
+                    ast.expressions.push({ type: 'Identifier', name: node.reference });
+                }
+                ret = replaceInExpr(
+                    logLitFunName + "(" + RP + "1, " + RP + "2, " + RP + "3, " + hasGetterSetter + ")",
+                    getIid(),
+                    ast,
+                    createLiteralAst(funId)
+                );
             } else {
                 ret = replaceInExpr(
-                    logLitFunName + "(" + RP + "1, " + RP + "2, " + RP + "3," + hasGetterSetter + ")",
+                    logLitFunName + "(" + RP + "1, " + RP + "2, " + RP + "3, " + hasGetterSetter + ")",
                     getIid(),
                     ast,
                     createLiteralAst(funId)
@@ -873,17 +929,27 @@ if (typeof J$ === 'undefined') {
 
     function createCallAsFunEnterStatement(node) {
         printIidToLoc(node);
+
+        node.currentFunctionVar = mkFreshVar();
+
+        var callee;
+        if (node.scope.vars[node.id.name] === 'arg' || node.scope.vars[node.id.name] === 'var') {
+            callee = node.reference = mkFreshVar();
+        } else {
+            callee = node.id.name;
+        }
+
         var ret = replaceInStatement(
-            logFunctionEnterFunName + "(" + RP + "1,arguments.callee, this, arguments)",
-            getIid()
+            "var " + node.currentFunctionVar + " = " + logFunctionEnterFunName + "(" + RP + "1, " + callee + ", this, arguments)",
+            getIid(node)
         );
-        transferLoc(ret[0].expression, node);
+        transferLoc(ret[0].declarations[0].init, node);
         return ret;
     }
 
     function createCallAsScriptEnterStatement(node) {
         printIidToLoc(node);
-        var ret = replaceInStatement(logScriptEntryFunName + "(" + RP + "1," + RP + "2, " + RP + "3)",
+        var ret = replaceInStatement(logScriptEntryFunName + "(" + RP + "1, " + RP + "2, " + RP + "3)",
             getIid(),
             createLiteralAst(instCodeFileName), createLiteralAst(origCodeFileName));
         transferLoc(ret[0].expression, node);
@@ -913,10 +979,12 @@ if (typeof J$ === 'undefined') {
         }
         if (isDeclaration) {
             ret = replaceInStatement(
-                "function n() {  for(" + logTmpVarName + " in " + RP + "1) {var " + name + " = " + RP + "2;\n {" + RP + "3}}}", right, wrapWithX1(node, extra.right), body);
+                "function n() {  for(" + logTmpVarName + " in " + RP + "1) {var " + name + " = " + RP + "2;\n {" + RP + "3}}}",
+                right, wrapWithX1(node, extra.right), body);
         } else {
             ret = replaceInStatement(
-                "function n() {  for(" + logTmpVarName + " in " + RP + "1) {" + RP + "2;\n {" + RP + "3}}}", right, wrapWithX1(node, extra), body);
+                "function n() {  for(" + logTmpVarName + " in " + RP + "1) {" + RP + "2;\n {" + RP + "3}}}",
+                right, wrapWithX1(node, extra), body);
         }
         ret = ret[0].body.body[0];
         transferLoc(ret, node);
@@ -978,9 +1046,9 @@ if (typeof J$ === 'undefined') {
             var ret = replaceInStatement(
                 "function n() { jalangiLabel" + l + ": while(true) { try {" + RP + "1} catch(" + JALANGI_VAR +
                 "e) { //console.log(" + JALANGI_VAR + "e); console.log(" +
-                JALANGI_VAR + "e.stack);\n " + logUncaughtExceptionFunName + "(" + RP + "2," + JALANGI_VAR +
+                JALANGI_VAR + "e.stack);\n " + logUncaughtExceptionFunName + "(" + RP + "2, " + JALANGI_VAR +
                 "e); } finally { if (" + logFunctionReturnFunName + "(" +
-                RP + "3)) continue jalangiLabel" + l + ";\n else \n  return " + logReturnAggrFunName + "();\n }\n }}", body,
+                RP + "3, " + node.currentFunctionVar + ")) continue jalangiLabel" + l + ";\n else \n  return " + logReturnAggrFunName + "();\n }\n }}", body,
                 iid1,
                 getIid()
             );
@@ -1003,8 +1071,7 @@ if (typeof J$ === 'undefined') {
                     ret = ret.concat(createCallInitAsStatement(node,
                         createLiteralAst("arguments"),
                         ident,
-                        true,
-                        ident, false, true));
+                        true, ident, false, false));
                 }
             }
         }
@@ -1018,8 +1085,7 @@ if (typeof J$ === 'undefined') {
                                 ret = ret.concat(createCallInitAsStatement(node,
                                     createLiteralAst(name),
                                     wrapLiteral(ident, ident, N_LOG_FUNCTION_LIT),
-                                    false,
-                                    ident, false, true));
+                                    false, ident, false, true));
                             } else {
                                 ident = createIdentifierAst(name);
                                 ident.loc = scope.funLocs[name];
@@ -1034,8 +1100,7 @@ if (typeof J$ === 'undefined') {
                                 ident.loc = scope.funLocs[name];
                                 ret = ret.concat(createCallInitAsStatement(node,
                                     createLiteralAst(name), ident,
-                                    false,
-                                    ident, false, true));
+                                    false, ident, false, true));
                             }
                         }
                         if (scope.vars[name] === "arg") {
@@ -1460,6 +1525,9 @@ if (typeof J$ === 'undefined') {
             return ret1;
         },
         "FunctionExpression": function (node, context) {
+            if (!node.id || node.scope.vars[node.id.name] === 'var') {
+                node.id = { type: 'Literal', name: mkFreshVar(), isSynthetic: true };
+            }
             node.body.body = instrumentFunctionEntryExit(node, node.body.body);
             var ret1;
             if (context === astUtil.CONTEXT.GETTER || context === astUtil.CONTEXT.SETTER) {
@@ -1615,10 +1683,28 @@ if (typeof J$ === 'undefined') {
         },
         "FunctionExpression": function (node) {
             node.body.body = wrapFunBodyWithTryCatch(node, node.body.body);
+            if (node.scope.strictMode) {
+                node.body.body.unshift({
+                    type: 'ExpressionStatement',
+                    expression: {
+                        type: 'Literal',
+                        value: 'use strict'
+                    }
+                });
+            }
             return node;
         },
         "FunctionDeclaration": function (node) {
             node.body.body = wrapFunBodyWithTryCatch(node, node.body.body);
+            if (node.scope.strictMode) {
+                node.body.body.unshift({
+                    type: 'ExpressionStatement',
+                    expression: {
+                        type: 'Literal',
+                        value: 'use strict'
+                    }
+                });
+            }
             return node;
         },
         "WithStatement": function (node) {
@@ -1642,6 +1728,7 @@ if (typeof J$ === 'undefined') {
             this.hasArguments = false;
             this.parent = parent;
             this.isCatch = isCatch;
+            this.strictMode = parent !== null && parent.strictMode;
         }
 
         Scope.prototype.addVar = function (name, type, loc, node) {
@@ -1723,6 +1810,13 @@ if (typeof J$ === 'undefined') {
             currentScope = new Scope(currentScope);
             node.scope = currentScope;
             if (node.type === 'FunctionDeclaration') {
+                var body = node.body.body;
+                if (body.length > 0 && body[0].type === 'ExpressionStatement' &&
+                        body[0].expression.type === 'Literal' &&
+                        typeof body[0].expression.value === 'string' &&
+                        body[0].expression.value.toLowerCase() === 'use strict') {
+                    currentScope.strictMode = true;
+                }
                 oldScope.addVar(node.id.name, "defun", node.loc, node);
                 MAP(node.params, function (param) {
                     if (param.name === fromName) {         // rename arguments to J$_arguments
@@ -1731,7 +1825,14 @@ if (typeof J$ === 'undefined') {
                     currentScope.addVar(param.name, "arg");
                 });
             } else if (node.type === 'FunctionExpression') {
-                if (node.id !== null) {
+                var body = node.body.body;
+                if (body.length > 0 && body[0].type === 'ExpressionStatement' &&
+                        body[0].expression.type === 'Literal' &&
+                        typeof body[0].expression.value === 'string' &&
+                        body[0].expression.value.toLowerCase() === 'use strict') {
+                    currentScope.strictMode = true;
+                }
+                if (node.id !== null && !node.id.isSynthetic) {
                     currentScope.addVar(node.id.name, "lambda");
                 }
                 MAP(node.params, function (param) {
@@ -1763,6 +1864,15 @@ if (typeof J$ === 'undefined') {
             'Program': handleFun,
             'FunctionDeclaration': handleFun,
             'FunctionExpression': handleFun,
+            'ObjectExpression': function (node) {
+                node.properties.some(function (property) {
+                    if (property.kind === 'get' || property.kind === 'set') {
+                        // We need a local variable for the object to call __defineGetter__/__defineSetter__
+                        node.reference = mkFreshVar(currentScope);
+                        return true;
+                    }
+                });
+            },
             'VariableDeclarator': handleVar,
             'CatchClause': handleCatch
         };
@@ -1820,7 +1930,18 @@ if (typeof J$ === 'undefined') {
             for (var i = startIndex; i < ast.body.length; i++) {
 
                 if (ast.body[i].type === 'FunctionDeclaration') {
-                    newBody.push(ast.body[i]);
+                    var name = ast.body[i].id.name;
+                    var params = ast.body[i].params.map(function (param) { return param.name; }).join(', ');
+                    var assignStmt;
+                    if (ast.body[i].body === null) {
+                        assignStmt = acorn.parse(
+                            "var " + name + " = function " + (ast.body[i].reference || name) + "(" + params + ") {}").body;
+                    } else {
+                        assignStmt = replaceInStatement(
+                            "var " + name + " = function " + (ast.body[i].reference || name) + "(" + params + ") { " + RP + "1 }",
+                            ast.body[i].body.body);
+                    }
+                    newBody.push(assignStmt[0]);
                     if (newBody.length !== i + 1) {
                         hoisteredFunctions.push(ast.body[i].id.name);
                     }
@@ -1834,17 +1955,12 @@ if (typeof J$ === 'undefined') {
             while (ast.body.length > 0) {
                 ast.body.pop();
             }
-            for (var i = 0; i < newBody.length; i++) {
-                ast.body.push(newBody[i]);
-            }
-        } else {
-            //console.log(typeof ast.body);
+            Array.prototype.push.apply(ast.body, newBody);
         }
         for (key in ast) {
             if (ast.hasOwnProperty(key)) {
                 child = ast[key];
-                if (typeof child === 'object' && child !== null && key !==
-                    "scope") {
+                if (typeof child === 'object' && child !== null && key !== "scope") {
                     hoistFunctionDeclaration(child, hoisteredFunctions);
                 }
 
@@ -1860,7 +1976,7 @@ if (typeof J$ === 'undefined') {
 //         StatCollector.resumeTimer("parse");
 //        console.time("parse")
 //        var newAst = esprima.parse(code, {loc:true, range:true});
-        var newAst = acorn.parse(code, {locations: true, ecmaVersion: 6 });
+        var newAst = acorn.parse(code, { allowReturnOutsideFunction: true, locations: true, ecmaVersion: 6 });
 //        console.timeEnd("parse")
 //        StatCollector.suspendTimer("parse");
 //        StatCollector.resumeTimer("transform");
@@ -1889,13 +2005,16 @@ if (typeof J$ === 'undefined') {
 
 
     function instrumentEvalCode(code, iid, isDirect) {
+        var iids = sandbox.smap[sandbox.sid];
         return instrumentCode({
             code: code,
             thisIid: iid,
             isEval: true,
             inlineSourceMap: true,
             inlineSource: true,
-            isDirect: isDirect
+            isDirect: isDirect,
+            instCodeFileName: iids.instrumentedCodeFileName,
+            origCodeFileName: iids.originalCodeFileName
         }).code;
     }
 
@@ -1920,9 +2039,14 @@ if (typeof J$ === 'undefined') {
 
         iidSourceInfo = {};
         initializeIIDCounters(isEval);
-        instCodeFileName = options.instCodeFileName ? options.instCodeFileName : (options.isDirect?"eval":"evalIndirect");
-        origCodeFileName = options.origCodeFileName ? options.origCodeFileName : (options.isDirect?"eval":"evalIndirect");
 
+        if (options.isEval) {
+            instCodeFileName = (options.isDirect ? "eval": "evalIndirect") + "(" + options.instCodeFileName + ")";
+            origCodeFileName = (options.isDirect ? "eval": "evalIndirect") + "(" + options.origCodeFileName + ")";
+        } else {
+            instCodeFileName = options.instCodeFileName ? options.instCodeFileName : (options.isDirect?"eval":"evalIndirect");
+            origCodeFileName = options.origCodeFileName ? options.origCodeFileName : (options.isDirect?"eval":"evalIndirect");
+        }
 
         if (sandbox.analysis && sandbox.analysis.instrumentCodePre) {
             aret = sandbox.analysis.instrumentCodePre(thisIid, code, options.isDirect);

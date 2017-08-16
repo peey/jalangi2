@@ -19,7 +19,11 @@
 // JALANGI DO NOT INSTRUMENT
 
 if (typeof J$ === 'undefined') {
-    J$ = {};
+    Object.defineProperty(/*global*/ typeof window === 'undefined' ? global : window, 'J$', { // J$ = {}
+        configurable: false,
+        enumerable: false,
+        value: {}
+    });
 }
 
 (function (sandbox) {
@@ -48,8 +52,10 @@ if (typeof J$ === 'undefined') {
                     } else {
                         return "(" + fname + ":" + arr[0] + ":" + arr[1] + ":" + arr[2] + ":" + arr[3] + ")";
                     }
-                } else {
+                } else if (typeof iid !== "undefined") {
                     return "(" + fname + ":iid" + iid + ")";
+                } else {
+                    return "(" + fname + ")";
                 }
             }
         }

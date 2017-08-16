@@ -59,13 +59,13 @@ function setHeaders() {
 function getInlinedScripts(analyses, initParams, extraAppScripts, EXTRA_SCRIPTS_DIR, jalangiRoot, cdn) {
     if (!headerCode) {
         if (cdn) {
-            headerCode += "<script type=\"text/javascript\" src=\"" + cdn + "/jalangi.js\"></script>";
+            headerCode += "<script type=\"text/javascript\" data-jalangi=\"1\" src=\"" + cdn + "/jalangi.js\"></script>";
         } else {
             headerSources.forEach(function (src) {
                 if (jalangiRoot) {
                     src = path.join(jalangiRoot, src);
                 }
-                headerCode += "<script type=\"text/javascript\">";
+                headerCode += "<script type=\"text/javascript\" data-jalangi=\"1\">";
                 headerCode += fs.readFileSync(src);
                 headerCode += "</script>";
             });
@@ -77,11 +77,11 @@ function getInlinedScripts(analyses, initParams, extraAppScripts, EXTRA_SCRIPTS_
                 headerCode += initParamsCode;
             }
             if (cdn) {
-                headerCode += "<script type=\"text/javascript\" src=\"" + cdn + "/analyses.js\"></script>";
+                headerCode += "<script type=\"text/javascript\" data-jalangi=\"1\" src=\"" + cdn + "/analyses.js\"></script>";
             } else {
                 analyses.forEach(function (src) {
                     src = path.resolve(src);
-                    headerCode += "<script type=\"text/javascript\">";
+                    headerCode += "<script type=\"text/javascript\" data-jalangi=\"1\">";
                     headerCode += fs.readFileSync(src);
                     headerCode += "</script>";
                 });
@@ -92,11 +92,11 @@ function getInlinedScripts(analyses, initParams, extraAppScripts, EXTRA_SCRIPTS_
             // we need to inject script tags for the extra app scripts,
             // which have been copied into the app directory
             if (cdn) {
-                headerCode += "<script type=\"text/javascript\" src=\"" + cdn + "/extras.js\"></script>";
+                headerCode += "<script type=\"text/javascript\" data-jalangi=\"1\" src=\"" + cdn + "/extras.js\"></script>";
             } else {
                 extraAppScripts.forEach(function (script) {
                     var scriptSrc = path.join(EXTRA_SCRIPTS_DIR, path.basename(script));
-                    headerCode += "<script type=\"text/javascript\">";
+                    headerCode += "<script type=\"text/javascript\" data-jalangi=\"1\">";
                     headerCode += fs.readFileSync(scriptSrc);
                     headerCode += "</script>";
                 });
@@ -118,7 +118,7 @@ function getFooterString(jalangiRoot) {
             src = path.join(jalangiRoot, src);
         }
         if (endsWith(src, ".js")) {
-            footerCode += "<script type=\"text/javascript\">";
+            footerCode += "<script type=\"text/javascript\" data-jalangi=\"1\">";
             footerCode += fs.readFileSync(src);
             footerCode += "</script>";
         } else {
@@ -140,7 +140,7 @@ function genInitParamsCode(initParams) {
             initParamsObj[split[0]] = split[1];
         });
     }
-    return "<script>J$.initParams = " + JSON.stringify(initParamsObj) + ";</script>";
+    return "<script data-jalangi=\"1\">J$.initParams = " + JSON.stringify(initParamsObj) + ";</script>";
 }
 
 function applyASTHandler(instResult, astHandler, sandbox) {
