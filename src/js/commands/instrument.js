@@ -338,7 +338,7 @@
         var preambleAdded = false;
         function transform(readStream, writeStream, file) {
             var extension = path.extname(file.name);
-            if (extension === '.html') {
+            if (extension === '.html' || extension === '.htm') {
                 if (options.no_html || (onlyIncludeList && !includedFile(file.name))) {
                     readStream.pipe(writeStream);
                 } else {
